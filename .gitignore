@@ -1,0 +1,15 @@
+node_modules/
+npm-debug.log
+.DS_Store
+*.tmp
+*.tmp.*
+rdp_guard_*.log
+rdp_guard_*.json
+rdp_force_open.json
+rdp_attack_history.json
+rdp_snapshots.json
+wry-web.lock
+wry-web.log
+wry-web-watchdog.log
+wry-web.err
+*.lnk

@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wry合金防护 v2 - RDP 实时监控</title>
+<style>
+:root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --bg4: #30363d;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --text3: #6e7681;
+    --green: #3fb950;
+    --green-dim: rgba(63,185,80,0.15);
+    --red: #f85149;
+    --red-dim: rgba(248,81,73,0.15);
+    --blue: #58a6ff;
+    --blue-dim: rgba(88,166,255,0.15);
+    --yellow: #d29922;
+    --yellow-dim: rgba(210,153,34,0.15);
+    --border: #30363d;
+    --radius: 10px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    min-height: 100vh;
+    line-height: 1.6;
+    font-size: 14px;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 28px 20px; }
+
+/* Header */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.shield { font-size: 32px; }
+.header h1 { font-size: 22px; font-weight: 700; }
+.badge {
+    font-size: 11px;
+    background: var(--bg3);
+    color: var(--text2);
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+}
+.header-right { text-align: right; }
+.clock { font-size: 22px; font-weight: 700; font-family: 'Consolas', monospace; color: var(--text2); }
+.clock-label { font-size: 11px; color: var(--text3); }
+
+/* Status bar */
+.status-hero {
+    border-radius: 16px;
+    padding: 28px 32px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border: 2px solid transparent;
+    transition: all 0.4s;
+}
+.status-hero.NORMAL    { background: var(--green-dim);  border-color: var(--green); }
+.status-hero.BLOCKED   { background: var(--red-dim);    border-color: var(--red); }
+.status-hero.FORCE_OPEN { background: var(--blue-dim);  border-color: var(--blue); }
+
+.status-icon { font-size: 56px; line-height: 1; flex-shrink: 0; }
+.status-info { flex: 1; }
+.status-info h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.status-info p { font-size: 13px; color: var(--text2); max-width: 500px; }
+
+.status-countdown {
+    text-align: right;
+    flex-shrink: 0;
+}
+.countdown-num {
+    font-size: 48px;
+    font-weight: 900;
+    font-family: 'Consolas', monospace;
+    line-height: 1;
+}
+.countdown-label { font-size: 11px; color: var(--text2); margin-top: 4px; }
+
+/* Stat cards */
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.stat {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+    transition: border-color 0.2s;
+}
+.stat:hover { border-color: var(--text3); }
+.stat-icon { font-size: 20px; margin-bottom: 6px; }
+.stat-val { font-size: 26px; font-weight: 700; }
+.stat-label { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.stat.green .stat-val { color: var(--green); }
+.stat.red .stat-val { color: var(--red); }
+.stat.blue .stat-val { color: var(--blue); }
+.stat.yellow .stat-val { color: var(--yellow); }
+
+/* Buttons */
+.btn-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+.btn {
+    padding: 11px 28px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.btn:active { transform: translateY(0); }
+.btn-open    { background: var(--green); color: #000; }
+.btn-open:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-red     { background: transparent; color: var(--red); border-color: var(--red); }
+.btn-red:hover { background: var(--red-dim); }
+.btn-blue    { background: transparent; color: var(--blue); border-color: var(--blue); }
+.btn-blue:hover { background: var(--blue-dim); }
+.btn-gray    { background: var(--bg3); color: var(--text2); border-color: var(--border); }
+.btn-gray:hover { border-color: var(--text3); color: var(--text); }
+.btn-hint { font-size: 12px; color: var(--text3); align-self: center; }
+
+/* Info box */
+.info {
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    color: var(--text2);
+    border-left: 4px solid var(--text3);
+    line-height: 1.8;
+}
+.info.green  { border-left-color: var(--green); background: var(--green-dim); }
+.info.red    { border-left-color: var(--red);   background: var(--red-dim); }
+.info.blue   { border-left-color: var(--blue);  background: var(--blue-dim); }
+.info strong { color: var(--text); }
+
+/* Tabs */
+.tabs { display: flex; gap: 2px; margin-bottom: 0; border-bottom: 1px solid var(--border); }
+.tab {
+    padding: 10px 22px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text2);
+    border: none;
+    background: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: inherit;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--blue); font-weight: 700; }
+
+/* Panels */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Cards */
+.card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+.card-header {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.card-body { padding: 0; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+    text-align: left;
+    padding: 10px 18px;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--bg);
+}
+td { padding: 12px 18px; border-bottom: 1px solid var(--border); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+.td-ip { font-family: 'Consolas', monospace; color: #f0883e; font-size: 13px; }
+.td-num { font-weight: 700; color: var(--red); font-size: 15px; }
+.td-time { color: var(--text2); font-size: 12px; }
+.tag { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.tag-green  { background: var(--green-dim);  color: var(--green); }
+.tag-red    { background: var(--red-dim);    color: var(--red); }
+.tag-blue   { background: var(--blue-dim);  color: var(--blue); }
+.tag-yellow { background: var(--yellow-dim); color: var(--yellow); }
+.tag-gray   { background: var(--bg3); color: var(--text2); }
+
+.empty { text-align: center; padding: 48px 20px; color: var(--text3); font-size: 14px; }
+.empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+/* Firewall rules */
+.rule { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.rule:last-child { border-bottom: none; }
+.rule-name { font-family: 'Consolas', monospace; color: var(--text); }
+.rule-on  { color: var(--green); font-weight: 700; }
+.rule-off { color: var(--red); font-weight: 700; }
+
+/* Log */
+.log-view {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    background: #000;
+    color: #c9d1d9;
+    padding: 16px;
+    max-height: 420px;
+    overflow-y: auto;
+    line-height: 1.9;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.log-view .danger  { color: #ff7b72; }
+.log-view .success { color: #7ee787; }
+.log-view .warning { color: #e3b341; }
+.log-view .info    { color: #79c0ff; }
+
+/* Modal */
+.modal-bg {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+.modal-bg.show { display: flex; }
+.modal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 420px;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal-icon { font-size: 48px; text-align: center; margin-bottom: 16px; }
+.modal h3 { text-align: center; font-size: 20px; margin-bottom: 12px; }
+.modal p { font-size: 13px; color: var(--text2); margin-bottom: 16px; line-height: 1.7; }
+.modal .warn { color: var(--yellow); font-weight: 600; }
+.modal .pwd-label { font-size: 12px; color: var(--text3); margin-bottom: 8px; display: block; }
+.modal input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    margin-bottom: 16px;
+    font-family: inherit;
+}
+.modal input:focus { border-color: var(--blue); }
+.modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.modal .btn { padding: 10px 24px; }
+.btn-dark { background: var(--bg3); color: var(--text2); border-color: var(--border); }
+.btn-dark:hover { color: var(--text); border-color: var(--text3); }
+
+/* Toast */
+#toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    padding: 12px 24px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 700;
+    z-index: 200;
+    display: none;
+    animation: toastIn 0.3s ease;
+}
+#toast.show { display: block; }
+#toast.ok    { background: var(--green); color: #000; }
+#toast.err   { background: var(--red); color: #fff; }
+@keyframes toastIn {
+    from { transform: translateX(120%); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+}
+
+@media (max-width: 700px) {
+    .stats { grid-template-columns: 1fr 1fr; }
+    .status-hero { flex-direction: column; text-align: center; }
+    .status-countdown { text-align: center; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <span class="shield" id="shield">🛡</span>
+            <div>
+                <h1>wry合金防护 <span class="badge">v2</span></h1>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="clock" id="clock">--:--:--</div>
+            <div class="clock-label">最后更新</div>
+        </div>
+    </div>
+
+    <!-- Status hero -->
+    <div class="status-hero" id="status-hero">
+        <div class="status-icon" id="status-icon">🛡</div>
+        <div class="status-info">
+            <h2 id="status-title">加载中</h2>
+            <p id="status-desc">正在连接后台服务...</p>
+        </div>
+        <div class="status-countdown">
+            <div class="countdown-num" id="countdown-num">--</div>
+            <div class="countdown-label" id="countdown-label">等待状态</div>
+        </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stats">
+        <div class="stat green">
+            <div class="stat-icon">🔓</div>
+            <div class="stat-val" id="stat-open">-</div>
+            <div class="stat-label">已启用规则</div>
+        </div>
+        <div class="stat red">
+            <div class="stat-icon">🔒</div>
+            <div class="stat-val" id="stat-closed">-</div>
+            <div class="stat-label">已禁用规则</div>
+        </div>
+        <div class="stat yellow">
+            <div class="stat-icon">⚠</div>
+            <div class="stat-val" id="stat-attacks">0</div>
+            <div class="stat-label">今日攻击</div>
+        </div>
+        <div class="stat blue">
+            <div class="stat-icon">💥</div>
+            <div class="stat-val" id="stat-fails">0</div>
+            <div class="stat-label">24h 失败总数</div>
+        </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-row">
+        <button class="btn btn-open" id="btn-open" onclick="showModal('modal-open')">
+            🚀 强制开启 RDP
+        </button>
+        <button class="btn btn-red" id="btn-close" onclick="showModal('modal-close')">
+            ⛔ 手动关闭端口
+        </button>
+        <button class="btn btn-blue" id="btn-cancel" onclick="showModal('modal-cancel')" style="display:none">
+            ✕ 取消强制开启
+        </button>
+        <span class="btn-hint" id="btn-hint"></span>
+    </div>
+
+    <!-- Info -->
+    <div class="info green" id="info-normal">
+        <strong>🛡 监控中</strong> — RDP 端口正常开放，系统每分钟检测一次暴力破解攻击。
+        检测到 <strong>3 次</strong>及以上同 IP 登录失败（60 秒窗口），自动关闭端口 5 分钟。
+        <br><strong>内网 IP 全部放行</strong>（10.x.x.x、172.16-31.x.x、192.168.x.x），跳板机 192.168.3.88 不参与检测。
+    </div>
+    <div class="info red" id="info-blocked" style="display:none">
+        <strong>🔒 端口已关闭</strong> — 检测到暴力破解，RDP 端口已被防火墙规则关闭，外部无法连接。
+        5 分钟后自动恢复。如需立即恢复，使用「强制开启 RDP」。
+    </div>
+    <div class="info blue" id="info-force" style="display:none">
+        <strong>✅ 强制开启中</strong> — RDP 端口被用户手动强制开启，防护已暂停。
+        到期后自动恢复监控。点击「取消强制开启」可提前终止。
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('overview')">📊 防护概览</button>
+        <button class="tab" onclick="switchTab('history')">📋 攻击历史</button>
+        <button class="tab" onclick="switchTab('rules')">🛡 防火墙规则</button>
+        <button class="tab" onclick="switchTab('log')">📝 操作日志</button>
+    </div>
+
+    <!-- Panel: Overview -->
+    <div class="panel active" id="panel-overview">
+        <div class="card">
+            <div class="card-header">📊 近期攻击记录（最近 30 天）</div>
+            <div id="overview-table"></div>
+        </div>
+    </div>
+
+    <!-- Panel: History -->
+    <div class="panel" id="panel-history">
+        <div class="card">
+            <div class="card-header">📋 完整攻击历史</div>
+            <div id="history-table"></div>
+        </div>
+    </div>
+
+    <!-- Panel: Rules -->
+    <div class="panel" id="panel-rules">
+        <div class="card">
+            <div class="card-header">🛡 RDP 防火墙规则状态</div>
+            <div id="rules-body"></div>
+        </div>
+    </div>
+
+    <!-- Panel: Log -->
+    <div class="panel" id="panel-log">
+        <div class="card">
+            <div class="card-header">
+                📝 操作日志
+                <span style="margin-left:auto;font-size:11px;color:var(--text3)">自动刷新 · 每 5 秒</span>
+            </div>
+            <div class="log-view" id="log-view"></div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Modal: Open RDP -->
+<div class="modal-bg" id="modal-open">
+    <div class="modal">
+        <div class="modal-icon">🚀</div>
+        <h3>强制开启 RDP 端口</h3>
+        <p>此操作将<strong>立即启用所有 RDP 防火墙规则</strong>，使 RDP 端口可从外部访问，有效期 <strong>5 分钟</strong>。</p>
+        <p class="warn">⚠️ 请确认是你本人操作</p>
+        <label class="pwd-label">输入密码确认身份：</label>
+        <input type="password" id="pwd-open" placeholder="请输入后端密码" onkeydown="if(event.key==='Enter')doOpen()">
+        <div class="modal-btns">
+            <button class="btn btn-dark" onclick="hideModal('open')">取消</button>
+            <button class="btn btn-open" onclick="doOpen()">确认开启</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Close RDP -->
+<div class="modal-bg" id="modal-close">
+    <div class="modal">
+        <div class="modal-icon">⛔</div>
+        <h3>手动关闭 RDP 端口</h3>
+        <p>此操作将<strong>立即禁用所有 RDP 防火墙规则</strong>，关闭 RDP 访问，<strong>5 分钟后自动恢复</strong>。</p>
+        <p class="warn">⚠️ 请确认是你本人操作</p>
+        <label class="pwd-label">输入密码确认身份：</label>
+        <input type="password" id="pwd-close" placeholder="请输入后端密码" onkeydown="if(event.key==='Enter')doClose()">
+        <div class="modal-btns">
+            <button class="btn btn-dark" onclick="hideModal('close')">取消</button>
+            <button class="btn btn-red" onclick="doClose()">确认关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Cancel force open -->
+<div class="modal-bg" id="modal-cancel">
+    <div class="modal">
+        <div class="modal-icon">✕</div>
+        <h3>取消强制开启</h3>
+        <p>此操作将立即<strong>关闭 RDP 端口</strong>，恢复防护状态（由 guard.js 管理）。</p>
+        <label class="pwd-label">输入密码确认身份：</label>
+        <input type="password" id="pwd-cancel" placeholder="请输入后端密码" onkeydown="if(event.key==='Enter')doCancel()">
+        <div class="modal-btns">
+            <button class="btn btn-dark" onclick="hideModal('cancel')">取消</button>
+            <button class="btn btn-red" onclick="doCancel()">确认取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ============================================================================
+// State
+// ============================================================================
+let curStatus = null;
+let lastUpdated = 0;
+let cdInterval = null;
+
+// ============================================================================
+// Helpers
+// ============================================================================
+function $(id) { return document.getElementById(id); }
+
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('.tab[onclick*="'+name+'"]').classList.add('active');
+    $('panel-'+name).classList.add('active');
+}
+
+function showModal(type) {
+    document.getElementById('modal-' + type).classList.add('show');
+    const inp = document.querySelector('#modal-' + type + ' input');
+    if (inp) setTimeout(() => inp.focus(), 50);
+}
+function hideModal(type) {
+    document.getElementById('modal-' + type).classList.remove('show');
+    const inp = document.querySelector('#modal-' + type + ' input');
+    if (inp) inp.value = '';
+}
+
+function toast(msg, type='ok') {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = type === 'ok' ? 'ok' : 'err';
+    setTimeout(() => t.className = '', 3500);
+}
+
+function fmtCountdown(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+function fmtTime(ts) {
+    if (!ts) return '-';
+    return new Date(ts).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'});
+}
+
+// ============================================================================
+// API
+// ============================================================================
+async function apiPost(path, body) {
+    const r = await fetch(path, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+    });
+    return r.json();
+}
+
+async function doOpen() {
+    const pwd = document.querySelector('#modal-open input').value;
+    if (!pwd) { toast('请输入密码', 'err'); return; }
+    hideModal('open');
+    try {
+        const r = await apiPost('/api/force-open', { password: pwd });
+        if (!r.ok) { toast(r.error || '操作失败', 'err'); return; }
+        toast(`RDP 已开启，${r.restored} 条规则已恢复，有效期 5 分钟`, 'ok');
+        refreshAll();
+    } catch(e) { toast('网络错误', 'err'); }
+}
+
+async function doClose() {
+    const pwd = document.querySelector('#modal-close input').value;
+    if (!pwd) { toast('请输入密码', 'err'); return; }
+    hideModal('close');
+    try {
+        const r = await apiPost('/api/force-close', { password: pwd });
+        if (!r.ok) { toast(r.error || '操作失败', 'err'); return; }
+        toast(`RDP 端口已关闭（${r.closed} 条规则禁用），5 分钟后自动恢复`, 'ok');
+        refreshAll();
+    } catch(e) { toast('网络错误', 'err'); }
+}
+
+async function doCancel() {
+    const pwd = document.querySelector('#modal-cancel input').value;
+    if (!pwd) { toast('请输入密码', 'err'); return; }
+    hideModal('cancel');
+    try {
+        const r = await apiPost('/api/force-cancel', { password: pwd });
+        if (!r.ok) { toast(r.error || '操作失败', 'err'); return; }
+        toast(r.message || '强制开启已取消', 'ok');
+        refreshAll();
+    } catch(e) { toast('网络错误', 'err'); }
+}
+
+// ============================================================================
+// Data
+// ============================================================================
+async function refreshAll() {
+    lastUpdated = Date.now();
+    try {
+        const [statusRes, historyRes, logsRes] = await Promise.all([
+            fetch('/api/status'),
+            fetch('/api/history'),
+            fetch('/api/logs'),
+        ]);
+        const s = await statusRes.json();
+        const h = await historyRes.json();
+        const l = await logsRes.json();
+        updateStatus(s, h, l);
+    } catch(e) {
+        console.error('refreshAll error:', e);
+    }
+}
+
+function updateStatus(s, history, logs) {
+    // Status
+    const hero = $('status-hero');
+    hero.className = 'status-hero ' + s.status;
+
+    const titles = {
+        NORMAL: 'RDP 端口开放 — 防护监控中',
+        BLOCKED: 'RDP 端口已关闭 — 攻击封禁中',
+        FORCE_OPEN: 'RDP 强制开启中 — 用户手动操作',
+    };
+    const descs = {
+        NORMAL: `${s.openCount} 条防火墙规则已启用，每分钟检测暴力破解。攻击阈值：${s.threshold} 次失败 / ${s.lookback} 秒`,
+        BLOCKED: `检测到暴力破解，端口已关闭 ${s.blockedAt}，${s.blockedRemaining} 分钟后自动恢复`,
+        FORCE_OPEN: `强制开启生效中，${s.forceOpenUntil} 到期自动关闭`,
+    };
+    const icons = { NORMAL: '🛡', BLOCKED: '🔒', FORCE_OPEN: '✅' };
+
+    $('status-title').textContent = titles[s.status] || s.status;
+    $('status-desc').textContent = descs[s.status] || '';
+    $('status-icon').textContent = icons[s.status] || '🛡';
+
+    // Shield color
+    const colors = { NORMAL: 'var(--green)', BLOCKED: 'var(--red)', FORCE_OPEN: 'var(--blue)' };
+    $('shield').style.color = colors[s.status] || 'var(--text)';
+
+    // Clock
+    $('clock').textContent = new Date().toLocaleTimeString('zh-CN');
+
+    // Countdown
+    if (s.status === 'FORCE_OPEN' && s.forceOpenRemaining) {
+        $('countdown-num').textContent = fmtCountdown(s.forceOpenRemaining);
+        $('countdown-label').textContent = '强制开启剩余';
+        if (!cdInterval) cdInterval = setInterval(refreshAll, 1000);
+    } else if (s.status === 'BLOCKED' && s.blockedRemaining) {
+        $('countdown-num').textContent = s.blockedRemaining + 'm';
+        $('countdown-label').textContent = '端口关闭剩余';
+        if (cdInterval) { clearInterval(cdInterval); cdInterval = null; }
+    } else {
+        $('countdown-num').textContent = '🛡';
+        $('countdown-label').textContent = '系统正常';
+        if (cdInterval) { clearInterval(cdInterval); cdInterval = null; }
+    }
+
+    // Stats
+    $('stat-open').textContent = s.openCount ?? '-';
+    $('stat-closed').textContent = s.closedCount ?? '-';
+    $('stat-attacks').textContent = (history || []).filter(x => isToday(x.time)).length;
+    const total24h = (history || []).reduce((sum, h) => sum + (h.total || 0), 0);
+    $('stat-fails').textContent = total24h;
+
+    // Buttons
+    const btnOpen   = $('btn-open');
+    const btnClose  = $('btn-close');
+    const btnCancel = $('btn-cancel');
+    btnOpen.style.display   = (s.status === 'NORMAL' || s.status === 'BLOCKED') ? '' : 'none';
+    btnClose.style.display  = (s.status === 'NORMAL') ? '' : 'none';
+    btnCancel.style.display = (s.status === 'FORCE_OPEN') ? '' : 'none';
+
+    // Info boxes
+    $('info-normal').style.display  = s.status === 'NORMAL' ? '' : 'none';
+    $('info-blocked').style.display = s.status === 'BLOCKED' ? '' : 'none';
+    $('info-force').style.display   = s.status === 'FORCE_OPEN' ? '' : 'none';
+
+    // Tables
+    renderHistory(history || []);
+    renderRules(s);
+    renderLog(logs || []);
+}
+
+function isToday(timeStr) {
+    if (!timeStr) return false;
+    const d = new Date(timeStr);
+    const now = new Date();
+    return d.toDateString() === now.toDateString();
+}
+
+function renderHistory(h) {
+    const short = h.slice(-10).reverse();
+    const all = h.slice(-50).reverse();
+
+    function build(rows) {
+        if (!rows.length) {
+            return '<div class="empty"><div class="empty-icon">✅</div>暂无攻击记录<br><span style="color:var(--text3);font-size:12px">系统运行正常，未检测到暴力破解</span></div>';
+        }
+        let html = '<table><thead><tr><th>时间</th><th>攻击 IP</th><th>失败次数</th><th>状态</th></tr></thead><tbody>';
+        for (const r of rows) {
+            const ips = Object.entries(r.ipCounts || {}).map(([ip, c]) => `${ip}×${c}`).join(', ') || '-';
+            html += `<tr>
+<td class="td-time">${r.time || '-'}</td>
+<td class="td-ip">${ips}</td>
+<td class="td-num">${r.total}</td>
+<td><span class="tag tag-red">端口关闭</span></td>
+</tr>`;
+        }
+        return html + '</tbody></table>';
+    }
+    $('overview-table').innerHTML = build(short);
+    $('history-table').innerHTML = build(all);
+}
+
+function renderRules(s) {
+    let html = '';
+    for (let i = 0; i < (s.openCount || 0); i++) {
+        html += `<div class="rule"><span class="rule-name">RDP 防火墙规则 #${i+1}</span><span class="rule-on">✓ 启用中</span></div>`;
+    }
+    for (let i = 0; i < (s.closedCount || 0); i++) {
+        html += `<div class="rule"><span class="rule-name">RDP 防火墙规则 #${(s.openCount||0)+i+1}</span><span class="rule-off">✕ 已禁用</span></div>`;
+    }
+    if (!html) html = '<div class="empty">无法获取防火墙规则状态</div>';
+    $('rules-body').innerHTML = html;
+}
+
+function renderLog(logs) {
+    if (!logs.length) {
+        $('log-view').innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px">暂无日志</div>';
+        return;
+    }
+    let html = '';
+    for (const l of logs) {
+        html += `<div class="${l.type || 'info'}">${escapeHtml(l.text)}</div>`;
+    }
+    $('log-view').innerHTML = html;
+    $('log-view').scrollTop = $('log-view').scrollHeight;
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============================================================================
+// Init
+// ============================================================================
+refreshAll();
+setInterval(refreshAll, 3000);
+setInterval(() => {
+    fetch('/api/logs').then(r => r.json()).then(l => renderLog(l)).catch(()=>{});
+}, 5000);
+</script>
+</body>
+</html>
