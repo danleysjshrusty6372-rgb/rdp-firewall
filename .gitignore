@@ -13,3 +13,8 @@ wry-web.log
 wry-web-watchdog.log
 wry-web.err
 *.lnk
+.ghtoken
+_*.js
+_*.ps1
+_*.bat
+package-lock.json
