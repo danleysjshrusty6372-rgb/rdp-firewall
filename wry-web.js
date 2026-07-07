@@ -12,18 +12,33 @@ const path = require('path');
 const os = require('os');
 const { execSync, exec } = require('child_process');
 
-const FORCE_OPEN_PASSWORD = process.env.RDP_GUARD_PASSWORD;
-if (!FORCE_OPEN_PASSWORD) {
-    console.error('❌ 请设置环境变量 RDP_GUARD_PASSWORD 后再启动 Web 面板');
-    console.error('   示例: set RDP_GUARD_PASSWORD=你的密码 && node wry-web.js');
-    process.exit(1);
-}
+const FORCE_OPEN_PASSWORD = process.env.RDP_GUARD_PASSWORD || '147369';  // ⚠️ 首次使用请修改！通过环境变量设置更安全
 const FORCE_OPEN_DURATION_MS = 5 * 60 * 1000;
 const FORCE_OPEN_FILE = os.homedir() + '\\Documents\\rdp_force_open.json';
-const STATE_FILE         = os.homedir() + '\\Documents\\rdp_guard_state.json';
-const LOG_FILE           = os.homedir() + '\\Documents\\rdp_block.log';
-const ATTACK_HISTORY_FILE = os.homedir() + '\\Documents\\rdp_attack_history.json';
-const SNAPSHOT_FILE = os.homedir() + '\\Documents\\rdp_snapshots.json';
+// 运行数据目录（SYSTEM 用户时回退到实际用户目录）
+function getDataDir() {
+    const homedir = os.homedir();
+    if (!homedir.toLowerCase().includes('system32')) {
+        return path.join(homedir, 'Documents');
+    }
+    const usersDir = 'C:\\Users';
+    try {
+        for (const name of fs.readdirSync(usersDir)) {
+            if (['Public', 'Default', 'Default User', 'All Users'].includes(name)) continue;
+            const docs = path.join(usersDir, name, 'Documents');
+            if (fs.existsSync(docs) && fs.statSync(docs).isDirectory()) {
+                return docs;
+            }
+        }
+    } catch (_) {}
+    return path.join(homedir, 'Documents');
+}
+const DATA_DIR = getDataDir();
+
+const STATE_FILE         = path.join(DATA_DIR, 'rdp_guard_state.json');
+const LOG_FILE           = path.join(DATA_DIR, 'rdp_block.log');
+const ATTACK_HISTORY_FILE = path.join(DATA_DIR, 'rdp_attack_history.json');
+const SNAPSHOT_FILE = path.join(DATA_DIR, 'rdp_snapshots.json');
 const HTML_FILE = __dirname + '\\wry-web.html';
 const PORT = 19888;
 const TZ = 'Asia/Shanghai';

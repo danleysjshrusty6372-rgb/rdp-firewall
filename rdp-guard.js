@@ -42,14 +42,37 @@ const PRIVATE_RANGES = [
 ];
 const DETECT_IP = '192.168.3.88';   // 跳板机 IP，参与检测和封禁
 
+// 运行数据目录（SYSTEM 用户时回退到实际用户目录）
+function getDataDir() {
+    const homedir = os.homedir();
+    // 非 SYSTEM 用户直接用 homedir/Documents
+    if (!homedir.toLowerCase().includes('system32')) {
+        return path.join(homedir, 'Documents');
+    }
+    // SYSTEM 用户：找第一个有 Documents 的用户目录
+    const usersDir = 'C:\\Users';
+    try {
+        for (const name of fs.readdirSync(usersDir)) {
+            if (['Public', 'Default', 'Default User', 'All Users'].includes(name)) continue;
+            const docs = path.join(usersDir, name, 'Documents');
+            if (fs.existsSync(docs) && fs.statSync(docs).isDirectory()) {
+                return docs;
+            }
+        }
+    } catch (_) {}
+    // 兜底
+    return path.join(homedir, 'Documents');
+}
+const DATA_DIR = getDataDir();
+
 // 文件路径
-const LOG_FILE           = path.join(os.homedir(), 'Documents', 'rdp_block.log');
-const STATE_FILE         = path.join(os.homedir(), 'Documents', 'rdp_guard_state.json');
-const LOCK_FILE          = path.join(os.homedir(), 'Documents', 'rdp_guard.lock');
-const FORCE_OPEN_FILE    = path.join(os.homedir(), 'Documents', 'rdp_force_open.json');
-const ATTACK_HISTORY_FILE = path.join(os.homedir(), 'Documents', 'rdp_attack_history.json');
-const SNAPSHOT_FILE      = path.join(os.homedir(), 'Documents', 'rdp_snapshots.json');
-const BACKFILL_DONE_FILE  = path.join(os.homedir(), 'Documents', 'rdp_guard_backfill.lock');
+const LOG_FILE           = path.join(DATA_DIR, 'rdp_block.log');
+const STATE_FILE         = path.join(DATA_DIR, 'rdp_guard_state.json');
+const LOCK_FILE          = path.join(DATA_DIR, 'rdp_guard.lock');
+const FORCE_OPEN_FILE    = path.join(DATA_DIR, 'rdp_force_open.json');
+const ATTACK_HISTORY_FILE = path.join(DATA_DIR, 'rdp_attack_history.json');
+const SNAPSHOT_FILE      = path.join(DATA_DIR, 'rdp_snapshots.json');
+const BACKFILL_DONE_FILE  = path.join(DATA_DIR, 'rdp_guard_backfill.lock');
 
 // ============================================================================
 // 工具函数
