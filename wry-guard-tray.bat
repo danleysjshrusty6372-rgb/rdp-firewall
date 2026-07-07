@@ -1,0 +1,62 @@
+@echo off
+chcp 65001 >nul
+title wry合金防护 v3 [运行中 - 关闭此窗口将关闭防火墙]
+cd /d %~dp0
+
+set NODE=node
+
+if "%RDP_GUARD_PASSWORD%"=="" (
+    echo [!] 错误：未设置 RDP_GUARD_PASSWORD
+    echo     请在命令行中运行: set RDP_GUARD_PASSWORD=你的密码 ^&^& wry-guard-tray.bat
+    echo.
+    pause
+    exit /b 1
+)
+
+echo.
+echo  ================================
+echo   wry合金防护 v3
+echo  ================================
+echo.
+
+REM 检查 node 可用
+where node >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Node.js not found in PATH
+    pause
+    exit /b 1
+)
+
+if not exist "rdp-guard-tray.js" (
+    echo [ERROR] rdp-guard-tray.js not found in %~dp0
+    pause
+    exit /b 1
+)
+
+REM 禁用计划任务
+schtasks /change /tn "wry合金防护" /disable >nul 2>&1
+schtasks /change /tn "wry合金防护Web守护" /disable >nul 2>&1
+echo  [OK] 已暂停计划任务
+
+REM 后台启动 Web 面板
+start "" /B "%NODE%" wry-web.js
+echo  [OK] Web 面板: http://localhost:19888
+
+REM 确保防火墙规则开启
+powershell -NoProfile -Command "Get-NetFirewallRule -Group '@FirewallAPI.dll,-28752' -Direction Inbound -Action Allow -Enabled False | Enable-NetFirewallRule" >nul 2>&1
+echo  [OK] 防火墙已开启
+
+REM 前台运行 guard（阻塞）
+echo  [OK] Guard 已启动
+echo.
+echo  ----------------------------------
+echo   关闭此窗口 = 关闭防火墙（断开 RDP）
+echo  ----------------------------------
+echo.
+
+"%NODE%" rdp-guard-tray.js
+
+REM ========== 窗口关闭后 ==========
+powershell -NoProfile -Command "Get-NetFirewallRule -Group '@FirewallAPI.dll,-28752' -Direction Inbound -Action Allow -Enabled True | Disable-NetFirewallRule" >nul 2>&1
+schtasks /change /tn "wry合金防护" /enable >nul 2>&1
+schtasks /change /tn "wry合金防护Web守护" /enable >nul 2>&1
