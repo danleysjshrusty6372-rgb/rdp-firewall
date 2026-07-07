@@ -23,6 +23,7 @@ const FORCE_OPEN_FILE = os.homedir() + '\\Documents\\rdp_force_open.json';
 const STATE_FILE         = os.homedir() + '\\Documents\\rdp_guard_state.json';
 const LOG_FILE           = os.homedir() + '\\Documents\\rdp_block.log';
 const ATTACK_HISTORY_FILE = os.homedir() + '\\Documents\\rdp_attack_history.json';
+const SNAPSHOT_FILE = os.homedir() + '\\Documents\\rdp_snapshots.json';
 const HTML_FILE = __dirname + '\\wry-web.html';
 const PORT = 19888;
 const TZ = 'Asia/Shanghai';
@@ -147,6 +148,46 @@ function getRecentLogs() {
     } catch (_) { return []; }
 }
 
+// 健康检查：防火墙状态、guard 运行状态
+function getHealth() {
+    const warnings = [];
+
+    // 1. 检查 Windows 防火墙是否启用（当前网络配置文件）
+    const fwOut = psRaw('Get-NetFirewallProfile | Where-Object { $_.Enabled -eq $false } | Select-Object -ExpandProperty Name');
+    if (fwOut && fwOut.trim()) {
+        const disabled = fwOut.trim().split('\n').map(s => s.trim()).filter(Boolean);
+        if (disabled.length > 0) {
+            warnings.push({ level: 'critical', msg: 'Windows 防火墙已关闭: ' + disabled.join(', ') + '。防护规则无效，RDP 端口完全裸露！' });
+        }
+    }
+
+    // 2. 检查 guard 快照是否最近（5 分钟内有更新说明 guard 在运行）
+    try {
+        const snapshots = readJson(SNAPSHOT_FILE, []);
+        if (snapshots.length > 0) {
+            const last = snapshots[snapshots.length - 1];
+            const age = (Date.now() - last.ts) / 1000;
+            if (age > 300) {
+                warnings.push({ level: 'warning', msg: `Guard 超过 ${Math.floor(age/60)} 分钟未更新快照，可能未正常运行` });
+            }
+        } else {
+            warnings.push({ level: 'warning', msg: '无 Guard 快照数据，可能从未运行过' });
+        }
+    } catch (_) {}
+
+    // 3. 检查 RDP 端口是否在监听
+    try {
+        const netstat = psRaw('Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count');
+        const listenCount = parseInt(netstat.trim(), 10) || 0;
+        const status = cache.status;
+        if (status && status.status === 'BLOCKED' && listenCount > 0) {
+            warnings.push({ level: 'warning', msg: '状态显示已封禁，但 RDP 端口仍在监听' });
+        }
+    } catch (_) {}
+
+    return { ok: warnings.length === 0, warnings };
+}
+
 function getHistory() {
     const history = readJson(ATTACK_HISTORY_FILE, []);
     return history.slice(-30).reverse().map(h => ({
@@ -195,7 +236,7 @@ function loadHtml() {
 let forceOpenInProgress = false;
 
 // ===== 后台缓存：异步采集，HTTP 请求零延迟 =====
-const cache = { status: null, logs: [], history: [], forceOpen: null, ts: 0 };
+const cache = { status: null, logs: [], history: [], forceOpen: null, health: { ok: true, warnings: [] }, ts: 0 };
 const CACHE_INTERVAL = 15000;  // 15秒刷新
 
 async function refreshStatusAsync() {
@@ -232,6 +273,7 @@ async function refreshStatusAsync() {
     } catch (_) {}
     try { cache.logs = getRecentLogs(); } catch (_) {}
     try { cache.history = getHistory(); } catch (_) {}
+    try { cache.health = getHealth(); } catch (_) {}
     cache.ts = Date.now();
 }
 
@@ -265,7 +307,7 @@ const server = http.createServer((req, res) => {
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
         // 将初始缓存数据注入 <body> 最前，转义 </ 防止提前关闭 script 标签
-        const preload = JSON.stringify({ s: cache.status, h: cache.history, l: cache.logs })
+        const preload = JSON.stringify({ s: cache.status, h: cache.history, l: cache.logs, health: cache.health })
             .replace(RegExp('</','g'), '<\\/');  // 防止 </script> 等标签误关闭
         const html = loadHtml().replace('<body>', '<body><script>window.__PRELOAD__=' + preload + ';</script>');
         res.writeHead(200, {
@@ -365,6 +407,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/logs') { sendJson(cache.logs); return; }
     if (req.method === 'GET' && url.pathname === '/api/log')  { sendJson(cache.logs); return; }
     if (req.method === 'GET' && url.pathname === '/api/history') { sendJson(cache.history); return; }
+    if (req.method === 'GET' && url.pathname === '/api/health') { sendJson(cache.health || { ok: true, warnings: [] }); return; }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));
 });
