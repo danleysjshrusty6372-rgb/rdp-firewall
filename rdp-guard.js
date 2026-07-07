@@ -126,7 +126,7 @@ function releaseExclusiveLock() {
 // 持久化
 // ============================================================================
 
-function persistAttack(total, ipCounts) {
+function persistAttack(total, ipCounts, userCounts, statusCounts) {
     try {
         let history = safeReadJson(ATTACK_HISTORY_FILE, []);
         const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
@@ -139,6 +139,8 @@ function persistAttack(total, ipCounts) {
                 time: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
                 total,
                 ipCounts,
+                userCounts: userCounts || {},
+                statusCounts: statusCounts || {},
             });
             atomicWrite(ATTACK_HISTORY_FILE, JSON.stringify(history, null, 2));
         }
@@ -271,6 +273,8 @@ function getRecentFailures(seconds) {
         const blocks = text.split(/^Event\[\d+\]\s*$/m).filter(b => b.trim());
 
         const ipCounts = {};
+        const userCounts = {};
+        const statusCounts = {};
         let total = 0;
 
         for (const b of blocks) {
@@ -283,15 +287,23 @@ function getRecentFailures(seconds) {
             if (!m || !m[1] || m[1] === '-' || m[1] === '127.0.0.1' || m[1] === '::1') continue;
 
             const ip = m[1];
-            // 跳过放行内网 IP（192.168.3.88 不跳过，参与检测）
             if (isPrivateIP(ip)) continue;
 
             total++;
             ipCounts[ip] = (ipCounts[ip] || 0) + 1;
+
+            // 提取用户名
+            const um = b.match(/登录失败的帐户:[\s\S]*?帐户名:\s*(\S+)/) ||
+                       b.match(/Account For Which Logon Failed:[\s\S]*?Account Name:\s*(\S+)/);
+            if (um && um[1] && um[1] !== '-') userCounts[um[1]] = (userCounts[um[1]] || 0) + 1;
+
+            // 提取状态码
+            const sm = b.match(/子状态:\s*(0x[0-9A-Fa-f]+)/) || b.match(/Sub Status:\s*(0x[0-9A-Fa-f]+)/);
+            if (sm) statusCounts[sm[1]] = (statusCounts[sm[1]] || 0) + 1;
         }
-        return { total, ipCounts };
+        return { total, ipCounts, userCounts, statusCounts };
     } catch (e) {
-        return { total: 0, ipCounts: {} };
+        return { total: 0, ipCounts: {}, userCounts: {}, statusCounts: {} };
     }
 }
 
@@ -364,7 +376,7 @@ async function main() {
         }
 
         // ---- 正常状态：检测攻击 ----
-        const { total, ipCounts } = getRecentFailures(LOOKBACK_SECONDS);
+        const { total, ipCounts, userCounts, statusCounts } = getRecentFailures(LOOKBACK_SECONDS);
         persistSnapshot(total, ipCounts);
 
         // 无攻击
@@ -392,7 +404,7 @@ async function main() {
         writeLog(`⚠️ 检测到暴力破解！最近${LOOKBACK_SECONDS}秒内 ${total} 次失败，` +
             `攻击 IP: ${triggeredIPs.join(', ')}，关闭 RDP 端口`);
 
-        persistAttack(total, ipCounts);
+        persistAttack(total, ipCounts, userCounts, statusCounts);
 
         // 禁用所有 RDP 入站规则
         const disabledCount = disableRDPRules();

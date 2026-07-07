@@ -43,13 +43,21 @@ function atomicWrite(filePath, data) {
     }
 }
 
+// 解码 PowerShell 输出（自动检测 UTF-16LE / UTF-8 / GB18030）
+function decodePsOutput(buf) {
+    if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
+        return new TextDecoder('utf-16le').decode(buf.subarray(2));
+    }
+    const asUtf8 = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    try { JSON.parse(asUtf8.trim()); return asUtf8; } catch (_) {}
+    if (/[一-鿿]|True|False|Enabled|Disabled/i.test(asUtf8)) return asUtf8;
+    return new TextDecoder('gb18030', { fatal: false }).decode(buf);
+}
+
 function psRaw(cmd) {
     try {
         const buf = execSync(cmd, { encoding: 'buffer', timeout: 15000, windowsHide: true, shell: 'powershell.exe' });
-        if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
-            return new TextDecoder('utf-16le').decode(buf.subarray(2));
-        }
-        return new TextDecoder('gb18030', { fatal: false }).decode(buf);
+        return decodePsOutput(buf);
     } catch (_) { return ''; }
 }
 
@@ -58,13 +66,7 @@ function psAsync(cmd) {
     return new Promise((resolve) => {
         exec(cmd, { timeout: 15000, windowsHide: true, shell: 'powershell.exe', encoding: 'buffer' }, (err, stdout) => {
             if (err || !stdout) { resolve(''); return; }
-            try {
-                if (stdout.length >= 2 && stdout[0] === 0xFF && stdout[1] === 0xFE) {
-                    resolve(new TextDecoder('utf-16le').decode(stdout.subarray(2)));
-                } else {
-                    resolve(new TextDecoder('gb18030', { fatal: false }).decode(stdout));
-                }
-            } catch (_) { resolve(''); }
+            try { resolve(decodePsOutput(stdout)); } catch (_) { resolve(''); }
         });
     });
 }
@@ -150,7 +152,9 @@ function getHistory() {
     return history.slice(-30).reverse().map(h => ({
         time: h.time,
         total: h.total,
-        topIPs: Object.entries(h.ipCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 3)
+        ipCounts: h.ipCounts || {},
+        userCounts: h.userCounts || {},
+        statusCounts: h.statusCounts || {},
     }));
 }
 
@@ -365,6 +369,6 @@ const server = http.createServer((req, res) => {
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-    console.log('\uD83D\uDEE1 wry\u5408\u91D1\u9632\u62A4 Web \u76D1\u63A7\u5DF2\u542F\u52A8: http://127.0.0.1:' + PORT);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log('\uD83D\uDEE1 wry\u5408\u91D1\u9632\u62A4 Web \u76D1\u63A7\u5DF2\u542F\u52A8: http://0.0.0.0:' + PORT);
 });

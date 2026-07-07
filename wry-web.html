@@ -424,8 +424,37 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 
     <!-- Panel: Overview -->
     <div class="panel active" id="panel-overview">
+        <div class="stats" style="grid-template-columns: repeat(3,1fr); margin-top: 16px;">
+            <div class="stat red">
+                <div class="stat-icon">👤</div>
+                <div class="stat-val" id="stat-user-count">0</div>
+                <div class="stat-label">被爆破用户名数</div>
+            </div>
+            <div class="stat yellow">
+                <div class="stat-icon">🌐</div>
+                <div class="stat-val" id="stat-ip-count">0</div>
+                <div class="stat-label">攻击 IP 数</div>
+            </div>
+            <div class="stat blue">
+                <div class="stat-icon">📋</div>
+                <div class="stat-val" id="stat-event-count">0</div>
+                <div class="stat-label">攻击事件数</div>
+            </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+            <div class="card">
+                <div class="card-header">👤 被爆破用户名 TOP 10</div>
+                <div id="overview-users"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">🌐 攻击 IP 排行 TOP 10</div>
+                <div id="overview-ips"></div>
+            </div>
+        </div>
+
         <div class="card">
-            <div class="card-header">📊 近期攻击记录（最近 30 天）</div>
+            <div class="card-header">📋 最近攻击记录</div>
             <div id="overview-table"></div>
         </div>
     </div>
@@ -701,6 +730,7 @@ function updateStatus(s, history, logs) {
     $('info-force').style.display   = s.status === 'FORCE_OPEN' ? '' : 'none';
 
     // Tables
+    renderOverview(history || []);
     renderHistory(history || []);
     renderRules(s);
     renderLog(logs || []);
@@ -713,9 +743,59 @@ function isToday(timeStr) {
     return d.toDateString() === now.toDateString();
 }
 
+function renderOverview(h) {
+    // 合并所有历史数据
+    const mergedUsers = {};
+    const mergedIPs = {};
+    let totalEvents = 0;
+    for (const r of h) {
+        totalEvents++;
+        for (const [u, c] of Object.entries(r.userCounts || {})) mergedUsers[u] = (mergedUsers[u] || 0) + c;
+        for (const [ip, c] of Object.entries(r.ipCounts || {})) mergedIPs[ip] = (mergedIPs[ip] || 0) + c;
+    }
+
+    // 统计卡片
+    const ue = $('stat-user-count'); if (ue) ue.textContent = Object.keys(mergedUsers).length;
+    const ie = $('stat-ip-count'); if (ie) ie.textContent = Object.keys(mergedIPs).length;
+    const ee = $('stat-event-count'); if (ee) ee.textContent = totalEvents;
+
+    // 用户名排行
+    const knownUsers = ['administrator','admin','guest','user','test'];
+    const userEntries = Object.entries(mergedUsers).sort((a,b) => b[1]-a[1]).slice(0, 10);
+    const uBox = $('overview-users');
+    if (uBox) {
+        if (!userEntries.length) {
+            uBox.innerHTML = '<div class="empty" style="padding:24px">暂无数据</div>';
+        } else {
+            let uh = '<table><thead><tr><th>用户名</th><th>次数</th><th>类型</th></tr></thead><tbody>';
+            for (const [u, c] of userEntries) {
+                const known = knownUsers.includes(u.toLowerCase());
+                uh += `<tr><td class="td-ip">${escapeHtml(u)}</td><td class="td-num">${c}</td><td><span class="tag ${known ? 'tag-red' : 'tag-gray'}">${known ? '真实账户' : '字典猜测'}</span></td></tr>`;
+            }
+            uBox.innerHTML = uh + '</tbody></table>';
+        }
+    }
+
+    // IP 排行
+    const ipEntries = Object.entries(mergedIPs).sort((a,b) => b[1]-a[1]).slice(0, 10);
+    const iBox = $('overview-ips');
+    if (iBox) {
+        if (!ipEntries.length) {
+            iBox.innerHTML = '<div class="empty" style="padding:24px">暂无数据</div>';
+        } else {
+            let ih = '<table><thead><tr><th>IP 地址</th><th>次数</th><th>风险</th></tr></thead><tbody>';
+            for (const [ip, c] of ipEntries) {
+                const rl = c >= 100 ? ['高危','tag-red'] : c >= 50 ? ['中危','tag-yellow'] : c >= 10 ? ['低危','tag-yellow'] : ['观察','tag-green'];
+                ih += `<tr><td class="td-ip">${escapeHtml(ip)}</td><td class="td-num">${c}</td><td><span class="tag ${rl[1]}">${rl[0]}</span></td></tr>`;
+            }
+            iBox.innerHTML = ih + '</tbody></table>';
+        }
+    }
+}
+
 function renderHistory(h) {
-    const short = h.slice(-10).reverse();
     const all = h.slice(-50).reverse();
+    const short = h.slice(-10).reverse();
 
     function build(rows) {
         if (!rows.length) {
