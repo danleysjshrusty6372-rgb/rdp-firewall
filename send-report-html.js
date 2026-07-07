@@ -12,15 +12,15 @@ const path = require('path');
 const ATTACK_HISTORY_FILE = os.homedir() + '\\Documents\\rdp_attack_history.json';
 const SNAPSHOT_FILE = os.homedir() + '\\Documents\\rdp_snapshots.json';
 
-// ============= 配置区 =============
+// ============= 配置区（敏感信息通过环境变量设置）=============
 const SMTP_HOST = 'smtp.yeah.net';
 const SMTP_PORT = 465;
 const SMTP_SECURE = true;
-const SMTP_USER = 'jianhx_claw@yeah.net';
-const SMTP_PASS = 'XJqBxzz4FU8zUuZM';
-const FROM_EMAIL = 'jianhx_claw@yeah.net';
+const SMTP_USER = process.env.SMTP_USER || 'jianhx_claw@yeah.net';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const FROM_EMAIL = SMTP_USER;
 const FROM_NAME = 'wry合金防护';
-const TO_EMAIL = 'jianhx189@163.com';
+const TO_EMAIL = process.env.REPORT_TO_EMAIL || 'jianhx189@163.com';
 // ==================================
 
 // 决定报告覆盖哪半天
@@ -500,6 +500,10 @@ ${logRows}
 </body></html>`;
 
 async function sendEmail(htmlBody) {
+    if (!SMTP_PASS) {
+        console.error('❌ SMTP_PASS 环境变量未设置，无法发送邮件');
+        process.exit(1);
+    }
     const transporter = nodemailer.createTransport({
         host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_SECURE,
         auth: { user: SMTP_USER, pass: SMTP_PASS }

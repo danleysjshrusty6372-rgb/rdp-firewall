@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>wry合金防护 v2 - RDP 实时监控</title>
+<title>wry合金防护 v3 - RDP 实时监控</title>
 <style>
 :root {
     --bg: #0d1117;
@@ -339,7 +339,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
         <div class="header-left">
             <span class="shield" id="shield">🛡</span>
             <div>
-                <h1>wry合金防护 <span class="badge">v2</span></h1>
+                <h1>wry合金防护 <span class="badge">v3</span></h1>
             </div>
         </div>
         <div class="header-right">
@@ -403,7 +403,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     <div class="info green" id="info-normal">
         <strong>🛡 监控中</strong> — RDP 端口正常开放，系统每分钟检测一次暴力破解攻击。
         检测到 <strong>3 次</strong>及以上同 IP 登录失败（60 秒窗口），自动关闭端口 5 分钟。
-        <br><strong>内网 IP 全部放行</strong>（10.x.x.x、172.16-31.x.x、192.168.x.x），跳板机 192.168.3.88 不参与检测。
+        <br><strong>内网 IP 全部放行</strong>（10.x.x.x、172.16-31.x.x、192.168.x.x），跳板机 192.168.3.88 参与检测（不放行）。
     </div>
     <div class="info red" id="info-blocked" style="display:none">
         <strong>🔒 端口已关闭</strong> — 检测到暴力破解，RDP 端口已被防火墙规则关闭，外部无法连接。

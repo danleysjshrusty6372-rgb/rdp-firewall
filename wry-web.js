@@ -1,4 +1,4 @@
-﻿// wry-web.js - wry合金防护 v2 Web 监控面板
+﻿// wry-web.js - wry合金防护 v3 Web 监控面板
 // v2 变更（2026-07-04）：
 //   1. 强制开启密码仅存储在后端，不暴露在前端 HTML 中
 //   2. 强制开启按钮：后端验证密码后立即启用 RDP + 写 force_open.json
@@ -167,12 +167,15 @@ function getStatus() {
     } else if (blockedAt && blockedRemaining) {
         status = 'BLOCKED';
     }
-    return { status, portState, openCount, closedCount, total, blockedAt, blockedRemaining, forceOpenRemaining, forceOpenUntil, lastFailCount: state.lastFailCount, threshold: 10, lookback: 300 };
+    return { status, portState, openCount, closedCount, total, blockedAt, blockedRemaining, forceOpenRemaining, forceOpenUntil, lastFailCount: state.lastFailCount, threshold: 3, lookback: 60 };
 }
 
 function loadHtml() {
-    try { return fs.readFileSync(HTML_FILE, 'utf8'); } catch (_) { return '<h1>wry合金防护 v2</h1><p>HTML 文件未找到</p>'; }
+    try { return fs.readFileSync(HTML_FILE, 'utf8'); } catch (_) { return '<h1>wry合金防护 v3</h1><p>HTML 文件未找到</p>'; }
 }
+
+// ===== 互斥标志 =====
+let forceOpenInProgress = false;
 
 // ===== 后台缓存：异步采集，HTTP 请求零延迟 =====
 const cache = { status: null, logs: [], history: [], forceOpen: null, ts: 0 };
@@ -207,7 +210,7 @@ async function refreshStatusAsync() {
         } else if (blockedAt && blockedRemaining) {
             status = 'BLOCKED';
         }
-        cache.status = { status, portState, openCount, closedCount, total, blockedAt, blockedRemaining, forceOpenRemaining, forceOpenUntil, lastFailCount: state.lastFailCount || 0, threshold: 10, lookback: 300 };
+        cache.status = { status, portState, openCount, closedCount, total, blockedAt, blockedRemaining, forceOpenRemaining, forceOpenUntil, lastFailCount: state.lastFailCount || 0, threshold: 3, lookback: 60 };
         cache.forceOpen = fo && fo.until > Date.now() ? { active: true, since: fo.since, until: fo.until, remainingMs: fo.until - Date.now() } : { active: false };
     } catch (_) {}
     try { cache.logs = getRecentLogs(); } catch (_) {}
@@ -223,7 +226,7 @@ function quickInitCache() {
     const blockedAt = state.blockedAt ? new Date(state.blockedAt) : null;
     if (fo && fo.until && fo.until > Date.now()) status = 'FORCE_OPEN';
     else if (blockedAt && Date.now() - blockedAt.getTime() < 5 * 60 * 1000) status = 'BLOCKED';
-    cache.status = { status, portState: 'unknown', openCount: -1, closedCount: -1, total: -1, blockedRemaining: null, lastFailCount: state.lastFailCount || 0, threshold: 10, lookback: 300 };
+    cache.status = { status, portState: 'unknown', openCount: -1, closedCount: -1, total: -1, blockedRemaining: null, lastFailCount: state.lastFailCount || 0, threshold: 3, lookback: 60 };
     cache.forceOpen = fo && fo.until > Date.now() ? { active: true, since: fo.since, until: fo.until, remainingMs: fo.until - Date.now() } : { active: false };
     try { cache.logs = getRecentLogs(); } catch (_) {}
     try { cache.history = getHistory(); } catch (_) {}
@@ -280,15 +283,21 @@ const server = http.createServer((req, res) => {
             try { json = JSON.parse(body); } catch (_) {}
             if (!json.password) { sendJson({ ok: false, error: '请提供密码' }, 400); return; }
             if (json.password !== FORCE_OPEN_PASSWORD) { sendJson({ ok: false, error: '密码错误' }, 401); return; }
-            const fo = getForceOpen();
-            if (fo.active) { sendJson({ ok: false, error: '强制开启已生效，无需重复开启', until: new Date(fo.until).toLocaleString('zh-CN', { timeZone: TZ }), remainingMs: fo.remainingMs }); return; }
-            const restored = enableRDPRules();
-            const now = Date.now();
-            atomicWrite(FORCE_OPEN_FILE, JSON.stringify({ since: now, until: now + FORCE_OPEN_DURATION_MS }));
-            let state = getState();
-            if (state.blockedAt) { state.blockedAt = null; state.lastFailCount = 0; atomicWrite(STATE_FILE, JSON.stringify(state, null, 2)); }
-            sendJson({ ok: true, since: new Date(now).toLocaleString('zh-CN', { timeZone: TZ }), until: new Date(now + FORCE_OPEN_DURATION_MS).toLocaleString('zh-CN', { timeZone: TZ }), remainingMs: FORCE_OPEN_DURATION_MS, restored });
-            cache.ts = 0; setTimeout(() => refreshStatusAsync(), 2000);
+            if (forceOpenInProgress) { sendJson({ ok: false, error: '操作进行中，请稍候' }, 429); return; }
+            forceOpenInProgress = true;
+            try {
+                const fo = getForceOpen();
+                if (fo.active) { sendJson({ ok: false, error: '强制开启已生效，无需重复开启', until: new Date(fo.until).toLocaleString('zh-CN', { timeZone: TZ }), remainingMs: fo.remainingMs }); return; }
+                const restored = enableRDPRules();
+                const now = Date.now();
+                atomicWrite(FORCE_OPEN_FILE, JSON.stringify({ since: now, until: now + FORCE_OPEN_DURATION_MS }));
+                let state = getState();
+                if (state.blockedAt) { state.blockedAt = null; state.lastFailCount = 0; atomicWrite(STATE_FILE, JSON.stringify(state, null, 2)); }
+                sendJson({ ok: true, since: new Date(now).toLocaleString('zh-CN', { timeZone: TZ }), until: new Date(now + FORCE_OPEN_DURATION_MS).toLocaleString('zh-CN', { timeZone: TZ }), remainingMs: FORCE_OPEN_DURATION_MS, restored });
+                cache.ts = 0; setTimeout(() => refreshStatusAsync(), 2000);
+            } finally {
+                forceOpenInProgress = false;
+            }
         });
         return;
     }
@@ -305,6 +314,8 @@ const server = http.createServer((req, res) => {
             let state = getState();
             state.blockedAt = new Date().toISOString();
             atomicWrite(STATE_FILE, JSON.stringify(state, null, 2));
+            // 清除 force-open 状态，防止 guard 下次运行时覆盖
+            try { fs.unlinkSync(FORCE_OPEN_FILE); } catch (_) {}
             sendJson({ ok: true, closed, message: 'RDP 端口已手动关闭，5 分钟后自动恢复' });
             cache.ts = 0; setTimeout(() => refreshStatusAsync(), 2000);
         });
@@ -341,6 +352,6 @@ const server = http.createServer((req, res) => {
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-    console.log('\uD83D\uDEE1 wry\u5408\u91D1\u9632\u62A4 Web \u76D1\u63A7\u5DF2\u542F\u52A8: http://0.0.0.0:' + PORT);
+server.listen(PORT, '127.0.0.1', () => {
+    console.log('\uD83D\uDEE1 wry\u5408\u91D1\u9632\u62A4 Web \u76D1\u63A7\u5DF2\u542F\u52A8: http://127.0.0.1:' + PORT);
 });

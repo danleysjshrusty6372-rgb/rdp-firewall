@@ -1,4 +1,4 @@
-// rdp-guard.js - wry合金防护 v2
+// rdp-guard.js - wry合金防护 v3
 // 
 // 新逻辑（v2）：
 //   - 无 IP 黑名单，攻击时直接关闭 RDP 端口（禁用防火墙规则）
@@ -104,6 +104,25 @@ function isPrivateIP(ip) {
 }
 
 // ============================================================================
+// 进程锁（排他文件，防止并发执行）
+// ============================================================================
+
+const EXCLUSIVE_LOCK = LOCK_FILE + '.acquired';
+
+function tryAcquireLock() {
+    try {
+        fs.writeFileSync(EXCLUSIVE_LOCK, String(process.pid), { flag: 'wx' });
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function releaseExclusiveLock() {
+    try { fs.unlinkSync(EXCLUSIVE_LOCK); } catch (_) {}
+}
+
+// ============================================================================
 // 持久化
 // ============================================================================
 
@@ -159,16 +178,21 @@ function ps(command) {
         const buf = execSync(command, {
             encoding: 'buffer', timeout: 20000, windowsHide: true, shell: 'powershell.exe'
         });
-        // 尝试 UTF-16-LE（PowerShell 默认）
+        // 1. UTF-16-LE（PowerShell 默认输出，有 BOM）
         if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
             return new TextDecoder('utf-16le').decode(buf.subarray(2));
         }
-        // 尝试 UTF-8
+        // 2. UTF-8（JSON 输出 / ConvertTo-Json 等场景）
         const asUtf8 = new TextDecoder('utf-8', { fatal: false }).decode(buf);
-        if (asUtf8.includes('远程') || asUtf8.includes('桌面') || asUtf8.includes('触发') || asUtf8.includes('恢复') || asUtf8.includes('True') || asUtf8.includes('False')) {
+        try {
+            JSON.parse(asUtf8.trim());
+            return asUtf8; // 合法 JSON，确认 UTF-8
+        } catch (_) {}
+        // 3. 检查 UTF-8 解码是否包含常见中文关键词或布尔值
+        if (/[一-鿿]|True|False|Enabled|Disabled/i.test(asUtf8)) {
             return asUtf8;
         }
-        // 回退 GB18030
+        // 4. 回退 GB18030
         return new TextDecoder('gb18030', { fatal: false }).decode(buf);
     } catch (e) {
         writeLog(`[WARN] ps 命令执行失败: ${command.substring(0, 80)} — ${e.message}`);
@@ -264,29 +288,13 @@ function getRecentFailures(seconds) {
 // ============================================================================
 
 async function main() {
-    const MY_PID = String(process.pid);
-
-    // ---- 进程锁（防止多实例并发）----
-    try {
-        let lockContent = '';
-        try { lockContent = fs.readFileSync(LOCK_FILE, 'utf8').trim(); } catch (_) {}
-        if (lockContent) {
-            const [lockPid, lockTs] = lockContent.split(':');
-            if (lockPid === MY_PID) {
-                const lockAge = Date.now() - parseInt(lockTs || '0', 10);
-                if (lockAge < 120000) {
-                    process.exit(0);  // 120秒内重复调用直接退出
-                }
-                writeLog(`[WARN] 检测到过期锁 PID=${lockPid}，强制清理`);
-            } else {
-                const lockAge = Date.now() - parseInt(lockTs || '0', 10);
-                if (lockAge < 120000) {
-                    process.exit(0);  // 其他进程持有锁
-                }
-            }
-        }
-    } catch (_) {}
-    try { fs.writeFileSync(LOCK_FILE, MY_PID + ':' + Date.now(), 'utf8'); } catch (_) {}
+    // ---- 排他锁（原子文件，防止并发执行）----
+    if (!tryAcquireLock()) {
+        // 另一个实例正在运行，静默退出
+        process.exit(0);
+    }
+    // 同时写 PID 记录（供 watchdog/debug 使用）
+    try { fs.writeFileSync(LOCK_FILE, String(process.pid) + ':' + Date.now(), 'utf8'); } catch (_) {}
 
     try {
         // ---- forceOpen 检查（优先级最高）----
@@ -393,6 +401,7 @@ async function main() {
 
 function unlock() {
     try { fs.unlinkSync(LOCK_FILE); } catch (_) {}
+    releaseExclusiveLock();
 }
 
 main().catch(e => {

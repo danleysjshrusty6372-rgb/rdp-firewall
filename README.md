@@ -1,4 +1,4 @@
-# wry合金防护 v2
+# wry合金防护 v3
 
 一个简单高效的 Windows RDP 暴力破解防护系统，使用 Node.js + Windows 防火墙实现。
 
@@ -85,17 +85,16 @@ node wry-web.js
 
 ## 邮件报告配置
 
-在 `send-report-html.js` 中修改：
+通过环境变量设置 SMTP 凭据（推荐）：
 
-```javascript
-const SMTP_HOST = 'smtp.example.com';
-const SMTP_PORT = 465;
-const SMTP_USER = 'your@email.com';
-const SMTP_PASS = 'yourpassword';
-const FROM_EMAIL = 'your@email.com';
-const TO_EMAIL   = 'recipient@email.com';
+```cmd
+set SMTP_USER=your@email.com
+set SMTP_PASS=yourpassword
+set REPORT_TO_EMAIL=recipient@email.com
+node send-report-html.js
 ```
 
+也可在计划任务中设置环境变量。默认 SMTP 服务器为 `smtp.yeah.net:465`。
 推荐使用 163 邮箱（smtp.yeah.net）或 QQ 邮箱 SMTP。
 
 ## 跳板机配置
@@ -116,10 +115,10 @@ const BYPASS_IPS = ['192.168.3.88']; // 放行的内网 IP
 ## 技术细节
 
 - **检测方式**：读取 Windows Security Event Log（Event ID 4625）
-- **阈值**：同一 IP 60 秒内 10 次失败即触发封禁
+- **阈值**：同一 IP 60 秒内 3 次失败即触发封禁
 - **封禁时长**：5 分钟（强制关闭 RDP 端口）
 - **防护方式**：禁用 RDP 防火墙规则（Inbound Allow → Disabled）
-- **快照**：每小时保存一次系统状态，保留 7 天
+- **快照**：每 5 分钟保存一次系统状态，保留 7 天
 
 ## 依赖
 

@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM wry合金防护 v2 - 开机自启脚本
+REM wry合金防护 v3 - 开机自启脚本
 REM ============================================================
 REM 使用方式：
 REM   1. 右键本文件 → 创建快捷方式
@@ -11,10 +11,10 @@ REM      ② %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup      （当
 REM
 REM 或者直接双击运行，手动启动一次
 REM ============================================================
-title wry合金防护 v2
+title wry合金防护 v3
 echo.
 echo  ================================
-echo   wry合金防护 v2 - 开机自启
+echo   wry合金防护 v3 - 开机自启
 echo  ================================
 echo.
 cd /d C:\Users\jianh\.qclaw\workspace\rdp-firewall
@@ -23,9 +23,8 @@ start /b "" "C:\Program Files\QClaw\v0.2.32.610\resources\node\node.exe" rdp-gua
 echo [+] 启动 web 面板...
 start /b "" "C:\Program Files\QClaw\v0.2.32.610\resources\node\node.exe" wry-web.js
 echo.
-echo [OK] wry合金防护 v2 已启动！
+echo [OK] wry合金防护 v3 已启动！
 echo     Web面板: http://localhost:19888
-echo     强制开启密码: 147369
 echo.
 echo 按任意键退出...
 pause >nul

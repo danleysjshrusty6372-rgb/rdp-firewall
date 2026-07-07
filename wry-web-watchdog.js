@@ -5,8 +5,22 @@ const path = require('path');
 const net = require('net');
 
 const PORT = 19888;
-const NODE = 'C:\\Program Files\\QClaw\\v0.2.32.610\\resources\\node\\node.exe';
 const WEB_SCRIPT = path.join(__dirname, 'wry-web.js');
+
+// 按优先级解析 Node 可执行文件路径
+function resolveNode() {
+    const candidates = [
+        'C:\\Program Files\\QClaw\\v0.2.32.610\\resources\\node\\node.exe',
+        process.execPath,
+        process.env.NODE_PATH,
+        'node',
+    ].filter(Boolean);
+    for (const c of candidates) {
+        try { if (fs.existsSync(c)) return c; } catch (_) {}
+    }
+    return 'node'; // 最终回退，靠 PATH
+}
+const NODE = resolveNode();
 const LOCK_FILE = path.join(__dirname, 'wry-web.lock');
 const LOG_FILE = path.join(__dirname, 'wry-web-watchdog.log');
 
