@@ -379,8 +379,12 @@ async function main() {
         const { total, ipCounts, userCounts, statusCounts } = getRecentFailures(LOOKBACK_SECONDS);
         persistSnapshot(total, ipCounts);
 
-        // 无攻击
+        // 无攻击：确保 RDP 端口是开启的
         if (total === 0) {
+            if (!isRDPOpen()) {
+                const count = enableRDPRules();
+                writeLog(`无攻击事件，RDP 端口未开启，已自动恢复（${count} 条规则）`);
+            }
             unlock(); process.exit(0);
         }
 
