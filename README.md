@@ -37,12 +37,13 @@ powershell -ExecutionPolicy Bypass -File C:\path\to\register-tasks.ps1
 - `wry合金防护Web守护` — Web 守护，每分钟检查
 - `wry合金防护日报` — 每日 8:00 + 20:00 发邮件
 
-### 2. 手动启动 Web 面板
+### 2. 设置密码并启动 Web 面板
 
-以**管理员身份**运行桌面上的 `wry-web-admin.bat`，或直接：
+以**管理员身份**运行：
 
 ```cmd
 cd C:\path\to\rdp-firewall
+set RDP_GUARD_PASSWORD=你的密码
 node wry-web.js
 ```
 
@@ -56,20 +57,19 @@ node wry-web.js
 | 手动关闭端口 | 禁用防火墙规则，5 分钟后自动恢复 |
 | 取消强制开启 | 立即关闭 RDP 端口 |
 
-**强制开启密码**：后端验证，不在前端暴露（默认 `147369`，首次使用请修改）
+**强制开启密码**：后端验证，不在前端暴露。**首次使用必须通过环境变量设置密码**。
 
-修改密码方法：设置环境变量 `RDP_GUARD_PASSWORD`，或在 `wry-web.js` 中修改默认密码。
+## 强制开启密码配置（必填）
 
-## 强制开启密码配置
-
-密码存储在后端 `wry-web.js` 中，支持环境变量覆盖：
+启动 Web 面板前必须设置环境变量 `RDP_GUARD_PASSWORD`：
 
 ```cmd
 set RDP_GUARD_PASSWORD=你的密码
 node wry-web.js
 ```
 
-或在计划任务中设置环境变量。
+未设置密码时 Web 面板会拒绝启动并提示配置方法。
+建议在计划任务中也设置该环境变量。
 
 ## 数据文件
 
@@ -107,7 +107,7 @@ const BYPASS_IPS = ['192.168.3.88']; // 放行的内网 IP
 
 ## 安全建议
 
-1. **修改强制开启密码**（默认 147369）
+1. **设置强密码**（通过环境变量 `RDP_GUARD_PASSWORD`）
 2. RDP 平时保持关闭状态，只在需要时手动开启
 3. 建议配合强密码 + 双因素认证使用 RDP
 4. 定期检查 `rdp_attack_history.json` 了解攻击趋势
@@ -131,3 +131,7 @@ const BYPASS_IPS = ['192.168.3.88']; // 放行的内网 IP
 ```cmd
 npm install
 ```
+
+---
+
+> 本项目经 **Claude Code** (Opus 4.7) 审查并重构至 v3，修复了进程锁、阈值一致性、Web 安全等多项问题。
