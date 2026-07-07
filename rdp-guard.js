@@ -226,12 +226,24 @@ function disableRDPRules() {
 }
 
 // 启用所有 RDP 入站允许规则（开启端口）
+// 如果原有规则被系统保护无法启用，自动创建兜底规则
 function enableRDPRules() {
     const rules = getRDPRules(false);
     let count = 0;
     for (const r of rules) {
-        ps(`Enable-NetFirewallRule -Name '${r.Name}'`);
-        writeLog(`已恢复 RDP 规则: ${r.DisplayName || r.Name}`);
+        const result = ps(`Enable-NetFirewallRule -Name '${r.Name}'`);
+        if (result && result.includes('拒绝访问')) {
+            writeLog(`[WARN] 无法启用规则 ${r.Name}（权限不足），将使用兜底规则`);
+        } else {
+            writeLog(`已恢复 RDP 规则: ${r.DisplayName || r.Name}`);
+            count++;
+        }
+    }
+    // 验证：确认至少有一条 RDP 规则处于启用状态
+    const openCount = getRDPRules(true).length;
+    if (openCount === 0) {
+        writeLog('[WARN] 所有 RDP 规则均无法启用，创建兜底规则');
+        ps(`New-NetFirewallRule -DisplayName 'wry合金防护-兜底RDP' -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -Group '@FirewallAPI.dll,-28752'`);
         count++;
     }
     return count;

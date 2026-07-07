@@ -88,14 +88,22 @@ function getRDPClosedCount() {
 }
 
 function enableRDPRules() {
+    // 尝试启用原有规则
     const out = psRaw(
         'Get-NetFirewallRule -Group \'@FirewallAPI.dll,-28752\' -Direction Inbound -Action Allow -Enabled False | Enable-NetFirewallRule; ' +
-        'Get-NetFirewallRule -Group \'@FirewallAPI.dll,-28752\' -Direction Inbound -Action Allow -Enabled False | Measure-Object | Select-Object -ExpandProperty Count'
+        'Get-NetFirewallRule -Group \'@FirewallAPI.dll,-28752\' -Direction Inbound -Action Allow -Enabled True | Measure-Object | Select-Object -ExpandProperty Count'
     );
+    let enabledCount = 0;
     try {
         const lines = out.trim().split('\n');
-        return parseInt(lines[lines.length - 1].trim(), 10) || 0;
-    } catch (_) { return 0; }
+        enabledCount = parseInt(lines[lines.length - 1].trim(), 10) || 0;
+    } catch (_) {}
+    // 如果没有规则成功启用，创建兜底规则
+    if (enabledCount === 0) {
+        psRaw("New-NetFirewallRule -DisplayName 'wry合金防护-兜底RDP' -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -Group '@FirewallAPI.dll,-28752'");
+        enabledCount = 1;
+    }
+    return enabledCount;
 }
 
 function disableRDPRules() {
