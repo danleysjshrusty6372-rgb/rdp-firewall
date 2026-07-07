@@ -511,11 +511,14 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 
 <script>
 // 服务器预注入数据，打开页面即刻渲染，无需等待 fetch
+var __preloaded = false;
 if (window.__PRELOAD__ && window.__PRELOAD__.s) {
     try {
-        document.getElementById('status-title').textContent = '[PRELOAD] ' + (window.__PRELOAD__.s.status || '?');
+        updateStatus(window.__PRELOAD__.s, window.__PRELOAD__.h || [], window.__PRELOAD__.l || []);
+        __preloaded = true;
     } catch(e) {
-        document.getElementById('status-title').textContent = '[ERR] ' + e.message;
+        // 预加载失败，不影响后续 refreshAll 正常拉取
+        console.warn('[Preload] failed:', e.message);
     }
 }
 
@@ -766,7 +769,9 @@ function escapeHtml(str) {
 // ============================================================================
 // Init
 // ============================================================================
-refreshAll();
+if (!__preloaded) {
+    refreshAll();
+}
 setInterval(refreshAll, 3000);
 setInterval(() => {
     fetch('/api/logs').then(r => r.json()).then(l => renderLog(l)).catch(()=>{});
