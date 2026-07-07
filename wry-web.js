@@ -10,7 +10,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
 
 const FORCE_OPEN_PASSWORD = process.env.RDP_GUARD_PASSWORD || '147369';  // ⚠️ 首次使用请修改！通过环境变量设置更安全
 const FORCE_OPEN_DURATION_MS = 5 * 60 * 1000;
@@ -46,6 +46,22 @@ function psRaw(cmd) {
         }
         return new TextDecoder('gb18030', { fatal: false }).decode(buf);
     } catch (_) { return ''; }
+}
+
+// 异步版：不阻塞事件循环，用于后台缓存刷新
+function psAsync(cmd) {
+    return new Promise((resolve) => {
+        exec(cmd, { timeout: 15000, windowsHide: true, shell: 'powershell.exe', encoding: 'buffer' }, (err, stdout) => {
+            if (err || !stdout) { resolve(''); return; }
+            try {
+                if (stdout.length >= 2 && stdout[0] === 0xFF && stdout[1] === 0xFE) {
+                    resolve(new TextDecoder('utf-16le').decode(stdout.subarray(2)));
+                } else {
+                    resolve(new TextDecoder('gb18030', { fatal: false }).decode(stdout));
+                }
+            } catch (_) { resolve(''); }
+        });
+    });
 }
 
 function formatTime(date) {
@@ -158,6 +174,68 @@ function loadHtml() {
     try { return fs.readFileSync(HTML_FILE, 'utf8'); } catch (_) { return '<h1>wry合金防护 v2</h1><p>HTML 文件未找到</p>'; }
 }
 
+// ===== 后台缓存：异步采集，HTTP 请求零延迟 =====
+const cache = { status: null, logs: [], history: [], forceOpen: null, ts: 0 };
+const CACHE_INTERVAL = 15000;  // 15秒刷新
+
+async function refreshStatusAsync() {
+    try {
+        const [openOut, closedOut] = await Promise.all([
+            psAsync("Get-NetFirewallRule -Group '@FirewallAPI.dll,-28752' -Direction Inbound -Action Allow -Enabled True | Measure-Object | Select-Object -ExpandProperty Count"),
+            psAsync("Get-NetFirewallRule -Group '@FirewallAPI.dll,-28752' -Direction Inbound -Action Allow -Enabled False | Measure-Object | Select-Object -ExpandProperty Count"),
+        ]);
+        const openCount = parseInt((openOut || '').trim(), 10) || 0;
+        const closedCount = parseInt((closedOut || '').trim(), 10) || 0;
+        const total = openCount + closedCount;
+        let portState = 'unknown';
+        if (total > 0) portState = openCount > 0 ? 'open' : 'blocked';
+
+        const state = readJson(STATE_FILE, { blockedAt: null, lastFailCount: 0 });
+        const blockedAt = state.blockedAt ? new Date(state.blockedAt) : null;
+        let blockedRemaining = null;
+        if (blockedAt) {
+            const elapsed = (Date.now() - blockedAt.getTime()) / 60000;
+            const remaining = Math.max(0, Math.ceil(5 - elapsed));
+            if (remaining > 0) blockedRemaining = remaining;
+        }
+        const fo = readJson(FORCE_OPEN_FILE, null);
+        let status = 'NORMAL', forceOpenRemaining = null, forceOpenUntil = null;
+        if (fo && fo.until && fo.until > Date.now()) {
+            status = 'FORCE_OPEN';
+            forceOpenRemaining = fo.until - Date.now();
+            forceOpenUntil = formatTime(new Date(fo.until));
+        } else if (blockedAt && blockedRemaining) {
+            status = 'BLOCKED';
+        }
+        cache.status = { status, portState, openCount, closedCount, total, blockedAt, blockedRemaining, forceOpenRemaining, forceOpenUntil, lastFailCount: state.lastFailCount || 0, threshold: 10, lookback: 300 };
+        cache.forceOpen = fo && fo.until > Date.now() ? { active: true, since: fo.since, until: fo.until, remainingMs: fo.until - Date.now() } : { active: false };
+    } catch (_) {}
+    try { cache.logs = getRecentLogs(); } catch (_) {}
+    try { cache.history = getHistory(); } catch (_) {}
+    cache.ts = Date.now();
+}
+
+// 快速初始填充（不含 PowerShell，秒级可用）
+function quickInitCache() {
+    const state = readJson(STATE_FILE, { blockedAt: null, lastFailCount: 0 });
+    const fo = readJson(FORCE_OPEN_FILE, null);
+    let status = 'NORMAL';
+    const blockedAt = state.blockedAt ? new Date(state.blockedAt) : null;
+    if (fo && fo.until && fo.until > Date.now()) status = 'FORCE_OPEN';
+    else if (blockedAt && Date.now() - blockedAt.getTime() < 5 * 60 * 1000) status = 'BLOCKED';
+    cache.status = { status, portState: 'unknown', openCount: -1, closedCount: -1, total: -1, blockedRemaining: null, lastFailCount: state.lastFailCount || 0, threshold: 10, lookback: 300 };
+    cache.forceOpen = fo && fo.until > Date.now() ? { active: true, since: fo.since, until: fo.until, remainingMs: fo.until - Date.now() } : { active: false };
+    try { cache.logs = getRecentLogs(); } catch (_) {}
+    try { cache.history = getHistory(); } catch (_) {}
+    cache.ts = Date.now();
+}
+
+// 初始填充
+quickInitCache();
+// 后台异步刷新（含 PowerShell 防火墙规则查询）
+setTimeout(refreshStatusAsync, 2000);
+setInterval(refreshStatusAsync, CACHE_INTERVAL);
+
 const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1:' + PORT);
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -166,8 +244,17 @@ const server = http.createServer((req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(loadHtml()); return;
+        // 将初始缓存数据注入 <body> 最前，转义 </ 防止提前关闭 script 标签
+        const preload = JSON.stringify({ s: cache.status, h: cache.history, l: cache.logs })
+            .replace(RegExp('</','g'), '<\\/');  // 防止 </script> 等标签误关闭
+        const html = loadHtml().replace('<body>', '<body><script>window.__PRELOAD__=' + preload + ';</script>');
+        res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        });
+        res.end(html); return;
     }
 
     const sendJson = (data, status) => {
@@ -176,12 +263,12 @@ const server = http.createServer((req, res) => {
     };
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
-        sendJson(getStatus()); return;
+        sendJson(cache.status); return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/force-open') {
-        const fo = getForceOpen();
-        if (!fo.active) { sendJson({ active: false }); return; }
+        const fo = cache.forceOpen || getForceOpen();
+        if (!fo || !fo.active) { sendJson({ active: false }); return; }
         sendJson({ active: true, since: new Date(fo.since).toLocaleString('zh-CN', { timeZone: TZ }), until: new Date(fo.until).toLocaleString('zh-CN', { timeZone: TZ }), remainingMs: fo.remainingMs }); return;
     }
 
@@ -201,6 +288,7 @@ const server = http.createServer((req, res) => {
             let state = getState();
             if (state.blockedAt) { state.blockedAt = null; state.lastFailCount = 0; atomicWrite(STATE_FILE, JSON.stringify(state, null, 2)); }
             sendJson({ ok: true, since: new Date(now).toLocaleString('zh-CN', { timeZone: TZ }), until: new Date(now + FORCE_OPEN_DURATION_MS).toLocaleString('zh-CN', { timeZone: TZ }), remainingMs: FORCE_OPEN_DURATION_MS, restored });
+            cache.ts = 0; setTimeout(() => refreshStatusAsync(), 2000);
         });
         return;
     }
@@ -218,6 +306,7 @@ const server = http.createServer((req, res) => {
             state.blockedAt = new Date().toISOString();
             atomicWrite(STATE_FILE, JSON.stringify(state, null, 2));
             sendJson({ ok: true, closed, message: 'RDP 端口已手动关闭，5 分钟后自动恢复' });
+            cache.ts = 0; setTimeout(() => refreshStatusAsync(), 2000);
         });
         return;
     }
@@ -240,13 +329,14 @@ const server = http.createServer((req, res) => {
             atomicWrite(STATE_FILE, JSON.stringify(state, null, 2));
             try { fs.unlinkSync(FORCE_OPEN_FILE); } catch (_) {}
             sendJson({ ok: true, closed, message: 'RDP 端口已关闭，5 分钟后自动恢复' });
+            cache.ts = 0; setTimeout(() => refreshStatusAsync(), 2000);
         });
         return;
     }
 
-    if (req.method === 'GET' && url.pathname === '/api/logs') { sendJson(getRecentLogs()); return; }
-    if (req.method === 'GET' && url.pathname === '/api/log')  { sendJson(getRecentLogs()); return; }
-    if (req.method === 'GET' && url.pathname === '/api/history') { sendJson(getHistory()); return; }
+    if (req.method === 'GET' && url.pathname === '/api/logs') { sendJson(cache.logs); return; }
+    if (req.method === 'GET' && url.pathname === '/api/log')  { sendJson(cache.logs); return; }
+    if (req.method === 'GET' && url.pathname === '/api/history') { sendJson(cache.history); return; }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' }));
 });

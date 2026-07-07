@@ -510,6 +510,15 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 <div id="toast"></div>
 
 <script>
+// 服务器预注入数据，打开页面即刻渲染，无需等待 fetch
+if (window.__PRELOAD__ && window.__PRELOAD__.s) {
+    try {
+        document.getElementById('status-title').textContent = '[PRELOAD] ' + (window.__PRELOAD__.s.status || '?');
+    } catch(e) {
+        document.getElementById('status-title').textContent = '[ERR] ' + e.message;
+    }
+}
+
 // ============================================================================
 // State
 // ============================================================================

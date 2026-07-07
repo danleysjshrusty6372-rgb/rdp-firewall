@@ -34,13 +34,13 @@ const FORCE_OPEN_DURATION   = 5 * 60 * 1000;  // forceOpen 有效期（毫秒）
 const LOG_MAX_LINES        = 500;    // 日志最大保留行数
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;  // 快照间隔（5分钟）
 
-// 内网 IP 范围（除 192.168.3.88 外全部跳过检测和封禁）
+// 内网 IP 范围（192.168.3.88 参与检测，其他内网 IP 全部放行）
 const PRIVATE_RANGES = [
     { start: '10.0.0.0',      end: '10.255.255.255' },
     { start: '172.16.0.0',    end: '172.31.255.255' },
     { start: '192.168.0.0',   end: '192.168.255.255' },
 ];
-const BYPASS_IP   = '192.168.3.88';   // 跳板机 IP，不参与任何检测
+const DETECT_IP = '192.168.3.88';   // 跳板机 IP，参与检测和封禁
 
 // 文件路径
 const LOG_FILE           = path.join(os.homedir(), 'Documents', 'rdp_block.log');
@@ -87,10 +87,10 @@ function writeLog(msg) {
     } catch (_) {}
 }
 
-// 判断 IP 是否为内网 IP（除 bypassIP 外）
+// 判断 IP 是否为内网放行范围（192.168.3.88 不在此列，需参与检测）
 function isPrivateIP(ip) {
     if (!ip) return false;
-    if (ip === BYPASS_IP) return false;  // 跳板机不算内网放行
+    if (ip === DETECT_IP) return false;  // 跳板机参与检测，不放行
     const parts = ip.split('.').map(Number);
     if (parts.length !== 4 || parts.some(isNaN)) return false;
     const n = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
@@ -223,7 +223,7 @@ function isRDPOpen() {
 // 日志分析
 // ============================================================================
 
-// 获取最近 N 秒的 4625 事件，过滤掉内网和跳板机 IP
+// 获取最近 N 秒的 4625 事件，过滤掉内网 IP（192.168.3.88 参与检测）
 function getRecentFailures(seconds) {
     const since = new Date(Date.now() - seconds * 1000).toISOString();
     try {
@@ -247,8 +247,8 @@ function getRecentFailures(seconds) {
             if (!m || !m[1] || m[1] === '-' || m[1] === '127.0.0.1' || m[1] === '::1') continue;
 
             const ip = m[1];
-            // 跳过内网 IP 和跳板机
-            if (isPrivateIP(ip) || ip === BYPASS_IP) continue;
+            // 跳过放行内网 IP（192.168.3.88 不跳过，参与检测）
+            if (isPrivateIP(ip)) continue;
 
             total++;
             ipCounts[ip] = (ipCounts[ip] || 0) + 1;
